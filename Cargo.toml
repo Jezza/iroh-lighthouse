@@ -1,0 +1,29 @@
+[workspace]
+resolver = "3"
+members = ["crates/iroh-lighthouse", "crates/iroh-lighthouse-server"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/peeriot/iroh-lighthouse"
+
+[workspace.dependencies]
+# aws-lc-rs everywhere: reqwest 0.13's `rustls` feature is aws-lc-rs only, and
+# mixing it with iroh's default ring provider makes rustls panic at runtime when
+# no process-level provider is installed. One provider, no ambiguity.
+iroh = { version = "1.2", default-features = false, features = ["metrics", "tls-aws-lc-rs"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "signal", "io-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+blake3 = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = { version = "2", features = ["serde"] }
+n0-future = "0.3"
+n0-watcher = "1"
+clap = { version = "4", features = ["derive", "env"] }
+humantime = "2"
