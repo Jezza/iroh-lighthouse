@@ -171,6 +171,38 @@ async fn info_reports_lighthouse_address_and_limits() {
 }
 
 #[tokio::test]
+async fn configured_external_addr_is_advertised() {
+    let external: std::net::SocketAddr = "203.0.113.5:4433".parse().unwrap();
+    let mut config = test_config();
+    config.iroh.as_mut().unwrap().external_addrs = vec![external];
+    let server = Server::spawn(config).await.unwrap();
+
+    let client = http_client(&server);
+    let advertised = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let info = client.info().await.unwrap();
+            let addr = info.lighthouse.expect("iroh carrier enabled");
+            if addr.ip_addrs().any(|a| *a == external) {
+                return addr;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("external address never showed up in info");
+    assert_eq!(advertised.id, server.endpoint().unwrap().id());
+    assert!(
+        server
+            .endpoint_addr()
+            .unwrap()
+            .ip_addrs()
+            .any(|a| *a == external),
+        "endpoint itself advertises the configured address"
+    );
+    server.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn ttl_is_clamped_to_server_limits() {
     let server = Server::spawn(test_config()).await.unwrap();
     let a = endpoint().await;

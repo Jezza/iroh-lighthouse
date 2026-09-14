@@ -34,6 +34,11 @@ pub struct Cli {
     /// Run the iroh carrier without the n0 relay and DNS infrastructure.
     #[arg(long, env = "LIGHTHOUSE_NO_RELAYS")]
     pub no_relays: bool,
+    /// Public IP:PORT this lighthouse is reachable at over iroh, for hosts behind
+    /// NAT or a Docker port mapping where iroh cannot discover it. Repeatable;
+    /// the environment variable takes a comma-separated list.
+    #[arg(long, env = "LIGHTHOUSE_IROH_EXTERNAL_ADDR", value_delimiter = ',')]
+    pub iroh_external_addr: Vec<SocketAddr>,
     /// File holding the lighthouse's iroh secret key; created if missing.
     #[arg(
         long,
@@ -83,6 +88,13 @@ pub enum CliError {
     TtlTooLarge,
     #[error("--max-peers-per-topic and --max-topics must be at least 1")]
     ZeroLimit,
+    #[error("--iroh-external-addr {addr}: {reason}")]
+    ExternalAddr {
+        addr: SocketAddr,
+        reason: &'static str,
+    },
+    #[error("--iroh-external-addr needs the iroh carrier; drop --no-iroh")]
+    ExternalAddrWithoutIroh,
     #[error("secret key file {path}: {source}")]
     Key {
         path: PathBuf,
@@ -106,6 +118,22 @@ impl Cli {
         if self.max_peers_per_topic == 0 || self.max_topics == 0 {
             return Err(CliError::ZeroLimit);
         }
+        if self.no_iroh && !self.iroh_external_addr.is_empty() {
+            return Err(CliError::ExternalAddrWithoutIroh);
+        }
+        for addr in &self.iroh_external_addr {
+            let reason = if addr.ip().is_unspecified() {
+                "must be the concrete address peers dial, not the unspecified address"
+            } else if addr.port() == 0 {
+                "must name the published UDP port, not 0"
+            } else {
+                continue;
+            };
+            return Err(CliError::ExternalAddr {
+                addr: *addr,
+                reason,
+            });
+        }
 
         let iroh = if self.no_iroh {
             None
@@ -119,6 +147,7 @@ impl Cli {
                 secret_key,
                 bind_port: self.iroh_port,
                 relays: !self.no_relays,
+                external_addrs: self.iroh_external_addr,
             })
         };
 
@@ -213,6 +242,7 @@ mod tests {
         let iroh = config.iroh.unwrap();
         assert_eq!(iroh.bind_port, 0);
         assert!(iroh.relays);
+        assert!(iroh.external_addrs.is_empty());
         let snapshot = config.snapshot.unwrap();
         assert_eq!(snapshot.path, PathBuf::from("lighthouse.snapshot.json"));
         assert_eq!(snapshot.interval, Duration::from_secs(5));
@@ -247,6 +277,45 @@ mod tests {
         let iroh = config.iroh.unwrap();
         assert_eq!(iroh.bind_port, 4433);
         assert!(!iroh.relays);
+    }
+
+    #[test]
+    fn external_addrs_are_collected_and_validated() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = parse(
+            &[
+                "--iroh-external-addr",
+                "203.0.113.5:4433",
+                "--iroh-external-addr",
+                "[2001:db8::5]:4433,198.51.100.7:4433",
+            ],
+            dir.path(),
+        )
+        .into_config()
+        .unwrap();
+        assert_eq!(
+            config.iroh.unwrap().external_addrs,
+            vec![
+                "203.0.113.5:4433".parse::<SocketAddr>().unwrap(),
+                "[2001:db8::5]:4433".parse().unwrap(),
+                "198.51.100.7:4433".parse().unwrap(),
+            ]
+        );
+
+        for bad in ["0.0.0.0:4433", "[::]:4433", "203.0.113.5:0"] {
+            let err = parse(&["--iroh-external-addr", bad], dir.path())
+                .into_config()
+                .unwrap_err();
+            assert!(matches!(err, CliError::ExternalAddr { .. }), "{bad}: {err}");
+        }
+
+        let err = parse(
+            &["--no-iroh", "--iroh-external-addr", "203.0.113.5:4433"],
+            dir.path(),
+        )
+        .into_config()
+        .unwrap_err();
+        assert!(matches!(err, CliError::ExternalAddrWithoutIroh));
     }
 
     #[test]

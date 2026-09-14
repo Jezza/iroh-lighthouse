@@ -30,6 +30,10 @@ pub struct IrohConfig {
     /// Use the n0 relay and DNS infrastructure so the lighthouse is reachable
     /// through relays. Disable for isolated or test deployments.
     pub relays: bool,
+    /// Public addresses to advertise on top of whatever iroh discovers, for
+    /// hosts behind NAT or a Docker port mapping where discovery cannot see
+    /// the address peers must dial.
+    pub external_addrs: Vec<SocketAddr>,
 }
 
 /// Where and how often to persist the registry.
@@ -61,6 +65,7 @@ impl Default for Config {
                 secret_key: SecretKey::generate(),
                 bind_port: 0,
                 relays: true,
+                external_addrs: Vec::new(),
             }),
             snapshot: None,
             sweep_interval: Duration::from_secs(30),
@@ -237,11 +242,18 @@ async fn bind_iroh(
             .bind_addr(SocketAddr::from(([0, 0, 0, 0], config.bind_port)))
             .map_err(|err| ServerError::IrohBind(err.to_string()))?;
     }
+    for addr in &config.external_addrs {
+        builder = builder.external_addr(*addr);
+    }
     let endpoint = builder
         .bind()
         .await
         .map_err(|err| ServerError::IrohBind(err.to_string()))?;
-    info!(id = %endpoint.id(), "iroh carrier bound");
+    info!(
+        id = %endpoint.id(),
+        external = ?config.external_addrs,
+        "iroh carrier bound"
+    );
 
     ctx.set_lighthouse(Some(endpoint.addr()));
     let mut watcher = endpoint.watch_addr();

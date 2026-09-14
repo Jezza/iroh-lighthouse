@@ -12,5 +12,5 @@ pub mod topic;
 
 pub use client::{Announced, Error, Lighthouse};
 pub use lookup::LighthouseLookup;
-pub use session::Session;
+pub use session::{DEFAULT_POLL_INTERVAL, Session};
 pub use topic::{Topic, TopicId};

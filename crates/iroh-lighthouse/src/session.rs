@@ -1,30 +1,41 @@
-//! A topic membership that keeps itself registered.
+//! A topic membership that keeps itself registered and watches the others.
 
+use std::collections::BTreeSet;
 use std::time::Duration;
 
-use iroh::{Endpoint, Watcher};
+use iroh::{Endpoint, EndpointAddr, EndpointId, Watcher};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 use tracing::{debug, warn};
 
 use crate::client::{Error, Lighthouse};
 use crate::protocol::Peer;
 use crate::topic::Topic;
 
-/// Shortest interval between scheduled re-announces.
+/// How often a session polls the topic for membership changes unless
+/// [`Lighthouse::join_with`] says otherwise.
+pub const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(10);
+
+/// Shortest interval between scheduled re-announces or polls.
 const MIN_REFRESH: Duration = Duration::from_secs(1);
 /// Backoff bounds when the lighthouse is unreachable.
 const INITIAL_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(60);
 /// How long to let address changes settle before re-announcing.
 const ADDR_DEBOUNCE: Duration = Duration::from_millis(500);
+/// Stand-in deadline when `now + interval` would overflow.
+const FAR_FUTURE: Duration = Duration::from_secs(30 * 365 * 24 * 3600);
 
 /// A node's live registration on one topic.
 ///
-/// Created by [`Lighthouse::join`]. A background task re-announces at half the
-/// granted TTL, re-announces when the endpoint's address changes, and retries
-/// with backoff when the lighthouse is unreachable. Dropping the session stops
-/// the task without unregistering; the entry then ages out on the lighthouse.
+/// Created by [`Lighthouse::join`] or [`Lighthouse::join_with`]. A background
+/// task re-announces at half the granted TTL, re-announces when the endpoint's
+/// address changes, retries with backoff when the lighthouse is unreachable,
+/// and polls the topic on a fixed interval so [`Session::watch_peers`] sees
+/// members come, go, and move long before the next keep-alive. Dropping the
+/// session stops the task without unregistering; the entry then ages out on
+/// the lighthouse.
 #[derive(Debug)]
 pub struct Session {
     lighthouse: Lighthouse,
@@ -41,19 +52,21 @@ impl Session {
         endpoint: Endpoint,
         topic: Topic,
         ttl: Duration,
+        poll_interval: Option<Duration>,
     ) -> Result<Self, Error> {
         let announced = lighthouse
             .announce(endpoint.secret_key(), Some(&topic), endpoint.addr(), ttl)
             .await?;
         let (peers, _) = watch::channel(announced.peers);
-        let task = tokio::spawn(run(
-            lighthouse.clone(),
-            endpoint.clone(),
-            topic.clone(),
-            ttl,
-            announced.ttl,
-            peers.clone(),
-        ));
+        let task = tokio::spawn(run(Task {
+            lighthouse: lighthouse.clone(),
+            endpoint: endpoint.clone(),
+            topic: topic.clone(),
+            requested_ttl: ttl,
+            granted_ttl: announced.ttl,
+            poll_interval: poll_interval.map(|interval| interval.max(MIN_REFRESH)),
+            peers: peers.clone(),
+        }));
         Ok(Self {
             lighthouse,
             endpoint,
@@ -69,12 +82,14 @@ impl Session {
         &self.topic
     }
 
-    /// The other members as of the last successful announce.
+    /// The other members as of the last successful announce or poll.
     pub fn peers(&self) -> Vec<Peer> {
         self.peers.borrow().clone()
     }
 
-    /// A receiver that yields the peer list after every successful announce.
+    /// A receiver that wakes whenever another member joins, leaves, or changes
+    /// address. The list it holds is always the latest one, so `expires_in_secs`
+    /// can move without a wake-up.
     pub fn watch_peers(&self) -> watch::Receiver<Vec<Peer>> {
         self.peers.subscribe()
     }
@@ -90,7 +105,7 @@ impl Session {
                 self.requested_ttl,
             )
             .await?;
-        self.peers.send_replace(announced.peers.clone());
+        publish(&self.peers, announced.peers.clone());
         Ok(announced.peers)
     }
 
@@ -115,51 +130,173 @@ impl Drop for Session {
     }
 }
 
+/// Store `latest` and wake watchers only if membership or an address changed.
+fn publish(peers: &watch::Sender<Vec<Peer>>, latest: Vec<Peer>) {
+    peers.send_if_modified(|current| {
+        let changed = addrs(current) != addrs(&latest);
+        *current = latest;
+        changed
+    });
+}
+
+fn addrs(peers: &[Peer]) -> BTreeSet<&EndpointAddr> {
+    peers.iter().map(|peer| &peer.addr).collect()
+}
+
+fn without(peers: Vec<Peer>, id: EndpointId) -> Vec<Peer> {
+    peers
+        .into_iter()
+        .filter(|peer| peer.addr.id != id)
+        .collect()
+}
+
 fn refresh_interval(granted: Duration) -> Duration {
     (granted / 2).max(MIN_REFRESH)
 }
 
-async fn run(
+fn deadline(after: Duration) -> Instant {
+    let now = Instant::now();
+    now.checked_add(after).unwrap_or(now + FAR_FUTURE)
+}
+
+struct Task {
     lighthouse: Lighthouse,
     endpoint: Endpoint,
     topic: Topic,
     requested_ttl: Duration,
     granted_ttl: Duration,
+    poll_interval: Option<Duration>,
     peers: watch::Sender<Vec<Peer>>,
-) {
+}
+
+async fn run(task: Task) {
+    let Task {
+        lighthouse,
+        endpoint,
+        topic,
+        requested_ttl,
+        granted_ttl,
+        poll_interval,
+        peers,
+    } = task;
     let mut addr_watcher = endpoint.watch_addr();
     let mut backoff = INITIAL_BACKOFF;
-    let mut next_wait = refresh_interval(granted_ttl);
+    // Both timers are reset explicitly rather than recreated each iteration,
+    // so a poll firing never pushes back the keep-alive or vice versa.
+    let announce_at = tokio::time::sleep_until(deadline(refresh_interval(granted_ttl)));
+    tokio::pin!(announce_at);
+    let poll = poll_interval.unwrap_or(MIN_REFRESH);
+    let poll_at = tokio::time::sleep_until(deadline(poll));
+    tokio::pin!(poll_at);
+
     loop {
-        tokio::select! {
-            _ = tokio::time::sleep(next_wait) => {}
+        let announce = tokio::select! {
+            _ = &mut announce_at => true,
             changed = addr_watcher.updated() => {
                 if changed.is_err() {
                     debug!(topic = %topic.id(), "endpoint closed, session task ending");
                     return;
                 }
                 tokio::time::sleep(ADDR_DEBOUNCE).await;
+                true
             }
+            _ = &mut poll_at, if poll_interval.is_some() => false,
+        };
+
+        if announce {
+            match lighthouse
+                .announce(
+                    endpoint.secret_key(),
+                    Some(&topic),
+                    endpoint.addr(),
+                    requested_ttl,
+                )
+                .await
+            {
+                Ok(announced) => {
+                    publish(&peers, announced.peers);
+                    backoff = INITIAL_BACKOFF;
+                    announce_at
+                        .as_mut()
+                        .reset(deadline(refresh_interval(announced.ttl)));
+                    // The announce just returned fresh peers; space the next poll from here.
+                    poll_at.as_mut().reset(deadline(poll));
+                }
+                Err(err) => {
+                    warn!(topic = %topic.id(), %err, retry_in = ?backoff, "announce failed");
+                    announce_at.as_mut().reset(deadline(backoff));
+                    backoff = (backoff * 2).min(MAX_BACKOFF);
+                }
+            }
+        } else {
+            match lighthouse.lookup(&topic).await {
+                Ok(members) => publish(&peers, without(members, endpoint.id())),
+                Err(err) => debug!(topic = %topic.id(), %err, "poll failed"),
+            }
+            poll_at.as_mut().reset(deadline(poll));
         }
-        match lighthouse
-            .announce(
-                endpoint.secret_key(),
-                Some(&topic),
-                endpoint.addr(),
-                requested_ttl,
-            )
-            .await
-        {
-            Ok(announced) => {
-                peers.send_replace(announced.peers);
-                backoff = INITIAL_BACKOFF;
-                next_wait = refresh_interval(announced.ttl);
-            }
-            Err(err) => {
-                warn!(topic = %topic.id(), %err, retry_in = ?backoff, "announce failed");
-                next_wait = backoff;
-                backoff = (backoff * 2).min(MAX_BACKOFF);
-            }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::SocketAddr;
+
+    use iroh::SecretKey;
+
+    use super::*;
+
+    fn peer(port: u16, expires_in_secs: u32) -> Peer {
+        Peer {
+            addr: EndpointAddr::new(SecretKey::generate().public())
+                .with_ip_addr(SocketAddr::from(([127, 0, 0, 1], port))),
+            expires_in_secs,
         }
+    }
+
+    fn aged(peer: &Peer, expires_in_secs: u32) -> Peer {
+        Peer {
+            addr: peer.addr.clone(),
+            expires_in_secs,
+        }
+    }
+
+    #[test]
+    fn publish_wakes_only_when_membership_or_addresses_change() {
+        let (a, b) = (peer(1, 60), peer(2, 60));
+        let (tx, mut rx) = watch::channel(vec![a.clone(), b.clone()]);
+
+        publish(&tx, vec![aged(&b, 50), aged(&a, 40)]);
+        assert!(
+            !rx.has_changed().unwrap(),
+            "reordering and ageing are not changes"
+        );
+        assert_eq!(
+            tx.borrow()[1].expires_in_secs,
+            40,
+            "but the list is updated"
+        );
+
+        publish(&tx, vec![aged(&a, 30)]);
+        assert!(rx.has_changed().unwrap(), "a member left");
+        rx.mark_unchanged();
+
+        let moved = Peer {
+            addr: EndpointAddr::new(a.addr.id).with_ip_addr(SocketAddr::from(([10, 0, 0, 1], 9))),
+            expires_in_secs: 30,
+        };
+        publish(&tx, vec![moved]);
+        assert!(rx.has_changed().unwrap(), "a member changed address");
+        rx.mark_unchanged();
+
+        publish(&tx, vec![aged(&a, 20), peer(3, 60)]);
+        assert!(rx.has_changed().unwrap(), "a member joined");
+    }
+
+    #[test]
+    fn without_drops_only_the_given_id() {
+        let (a, b) = (peer(1, 60), peer(2, 60));
+        let rest = without(vec![a.clone(), b.clone()], a.addr.id);
+        assert_eq!(rest, vec![b]);
     }
 }
