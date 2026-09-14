@@ -13,7 +13,7 @@ use crate::protocol::{
     ALPN, AnnounceBody, ErrorBody, ErrorCode, HTTP_ANNOUNCE, HTTP_INFO, HTTP_LOOKUP, HTTP_RESOLVE,
     Info, LookupBody, MAX_MESSAGE_SIZE, Peer, Request, Response,
 };
-use crate::session::Session;
+use crate::session::{DEFAULT_POLL_INTERVAL, Session};
 use crate::topic::Topic;
 
 /// Result of a successful announce.
@@ -163,14 +163,32 @@ impl Lighthouse {
     /// Join a topic: announce `endpoint` on it and keep the registration alive.
     ///
     /// Returns once the first announce succeeded. `ttl` is the requested
-    /// lifetime; the session refreshes at half of whatever the lighthouse grants.
+    /// lifetime; the session re-announces at half of whatever the lighthouse
+    /// grants and polls the topic every [`DEFAULT_POLL_INTERVAL`] so
+    /// [`Session::watch_peers`] tracks the other members.
     pub async fn join(
         &self,
         endpoint: &Endpoint,
         topic: Topic,
         ttl: Duration,
     ) -> Result<Session, Error> {
-        Session::start(self.clone(), endpoint.clone(), topic, ttl).await
+        self.join_with(endpoint, topic, ttl, Some(DEFAULT_POLL_INTERVAL))
+            .await
+    }
+
+    /// [`join`](Self::join) with an explicit poll interval.
+    ///
+    /// Intervals under one second are raised to one second. `None` disables
+    /// polling: the peer list then only updates on the keep-alive re-announce
+    /// at half the granted TTL, on address changes, and on [`Session::refresh`].
+    pub async fn join_with(
+        &self,
+        endpoint: &Endpoint,
+        topic: Topic,
+        ttl: Duration,
+        poll_interval: Option<Duration>,
+    ) -> Result<Session, Error> {
+        Session::start(self.clone(), endpoint.clone(), topic, ttl, poll_interval).await
     }
 
     /// Describe the lighthouse.

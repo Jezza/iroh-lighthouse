@@ -199,3 +199,155 @@ async fn registrations_survive_a_restart_via_snapshot() {
     assert!(client.resolve(a.id()).await.unwrap().is_some());
     second.shutdown().await.unwrap();
 }
+
+/// Wait until the watched peer list satisfies `pred`, or fail after 10s.
+async fn wait_for(
+    watch: &mut tokio::sync::watch::Receiver<Vec<iroh_lighthouse::protocol::Peer>>,
+    what: &str,
+    pred: impl Fn(&[iroh_lighthouse::protocol::Peer]) -> bool,
+) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if pred(&watch.borrow_and_update()) {
+                return;
+            }
+            watch.changed().await.unwrap();
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("watch never saw {what}"));
+}
+
+#[tokio::test]
+async fn watch_sees_joins_leaves_and_moves_between_keepalives() {
+    let server = Server::spawn(test_config()).await.unwrap();
+    let (a, b) = (endpoint().await, endpoint().await);
+    dialable(&a).await;
+    let topic = Topic::new("poll");
+    let client = http_client(&server);
+
+    // A 60s TTL means the keep-alive re-announce is 30s away: anything the
+    // watch sees inside this test comes from polling.
+    let sa = client
+        .join_with(
+            &a,
+            topic.clone(),
+            Duration::from_secs(60),
+            Some(Duration::from_secs(1)),
+        )
+        .await
+        .unwrap();
+    let mut watch = sa.watch_peers();
+
+    let b_addr = dialable(&b).await;
+    client
+        .announce(
+            b.secret_key(),
+            Some(&topic),
+            b_addr.clone(),
+            Duration::from_secs(60),
+        )
+        .await
+        .unwrap();
+    wait_for(&mut watch, "b join", |peers| {
+        peers.iter().any(|p| p.addr == b_addr)
+    })
+    .await;
+
+    let moved = iroh::EndpointAddr::new(b.id())
+        .with_ip_addr("10.9.9.9:9".parse::<std::net::SocketAddr>().unwrap());
+    client
+        .announce(
+            b.secret_key(),
+            Some(&topic),
+            moved.clone(),
+            Duration::from_secs(60),
+        )
+        .await
+        .unwrap();
+    wait_for(&mut watch, "b address change", |peers| {
+        peers.iter().any(|p| p.addr == moved)
+    })
+    .await;
+
+    client
+        .announce(b.secret_key(), Some(&topic), moved, Duration::ZERO)
+        .await
+        .unwrap();
+    wait_for(&mut watch, "b leave", |peers| peers.is_empty()).await;
+
+    server.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn watch_is_quiet_while_membership_is_unchanged() {
+    let server = Server::spawn(test_config()).await.unwrap();
+    let (a, b) = (endpoint().await, endpoint().await);
+    dialable(&a).await;
+    let topic = Topic::new("quiet");
+    let client = http_client(&server);
+    client
+        .announce(
+            b.secret_key(),
+            Some(&topic),
+            dialable(&b).await,
+            Duration::from_secs(60),
+        )
+        .await
+        .unwrap();
+
+    // Keep-alive every second and a poll every second, both returning the
+    // same single peer with a shrinking `expires_in_secs`.
+    let sa = client
+        .join_with(
+            &a,
+            topic.clone(),
+            Duration::from_secs(2),
+            Some(Duration::from_secs(1)),
+        )
+        .await
+        .unwrap();
+    let watch = sa.watch_peers();
+    assert_eq!(sa.peers().len(), 1);
+
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(
+        !watch.has_changed().unwrap(),
+        "unchanged membership must not wake watchers"
+    );
+    assert_eq!(sa.peers().len(), 1);
+
+    server.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn polling_can_be_disabled() {
+    let server = Server::spawn(test_config()).await.unwrap();
+    let (a, b) = (endpoint().await, endpoint().await);
+    dialable(&a).await;
+    let topic = Topic::new("nopoll");
+    let client = http_client(&server);
+    let sa = client
+        .join_with(&a, topic.clone(), Duration::from_secs(60), None)
+        .await
+        .unwrap();
+    let watch = sa.watch_peers();
+
+    client
+        .announce(
+            b.secret_key(),
+            Some(&topic),
+            dialable(&b).await,
+            Duration::from_secs(60),
+        )
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(
+        !watch.has_changed().unwrap(),
+        "without polling only the keep-alive updates peers"
+    );
+    assert!(sa.peers().is_empty());
+
+    server.shutdown().await.unwrap();
+}

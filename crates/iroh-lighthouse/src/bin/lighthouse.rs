@@ -42,14 +42,18 @@ enum Command {
     },
     /// Look up a published endpoint by id.
     Resolve { id: EndpointId },
-    /// Join a topic with a fresh endpoint and print peers as they change, until Ctrl-C.
+    /// Join a topic with a fresh endpoint and print peers as they come, go, or move, until Ctrl-C.
     Join {
         #[arg(long)]
         topic: String,
         #[arg(long)]
         secret: Option<String>,
+        /// Registration lifetime; the session re-announces at half of it.
         #[arg(long, default_value = "1h", value_parser = humantime::parse_duration)]
         ttl: Duration,
+        /// How often to poll the topic for membership changes.
+        #[arg(long, default_value = "10s", value_parser = humantime::parse_duration)]
+        poll: Duration,
     },
 }
 
@@ -137,16 +141,20 @@ async fn main() -> anyhow::Result<()> {
             topic: name,
             secret,
             ttl,
+            poll,
         } => {
             let endpoint = endpoint.as_ref().expect("endpoint bound for join");
             let topic = topic(&name, secret.as_deref());
-            let session = lighthouse.join(endpoint, topic.clone(), ttl).await?;
+            let session = lighthouse
+                .join_with(endpoint, topic.clone(), ttl, Some(poll))
+                .await?;
             println!(
-                "joined topic {} ({}) as {} for {}",
+                "joined topic {} ({}) as {} for {}, polling every {}",
                 name,
                 topic.id(),
                 endpoint.id(),
-                humantime::format_duration(ttl)
+                humantime::format_duration(ttl),
+                humantime::format_duration(poll)
             );
             print_peers(&session.peers());
             let mut watch = session.watch_peers();
@@ -172,6 +180,8 @@ async fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use iroh_lighthouse::DEFAULT_POLL_INTERVAL;
+
     use super::*;
 
     #[test]
@@ -193,17 +203,33 @@ mod tests {
 
         let join = Cli::try_parse_from(
             base.iter()
-                .chain(["join", "--topic", "chat", "--ttl", "2h"].iter()),
+                .chain(["join", "--topic", "chat", "--ttl", "2h", "--poll", "3s"].iter()),
         )
         .unwrap();
-        assert!(
-            matches!(join.command, Command::Join { ttl, .. } if ttl == Duration::from_secs(7200))
-        );
+        assert!(matches!(
+            join.command,
+            Command::Join { ttl, poll, .. }
+                if ttl == Duration::from_secs(7200) && poll == Duration::from_secs(3)
+        ));
 
         let id = iroh::SecretKey::generate().public().to_string();
         let resolve =
             Cli::try_parse_from(base.iter().chain(["resolve", id.as_str()].iter())).unwrap();
         assert!(matches!(resolve.command, Command::Resolve { .. }));
+    }
+
+    #[test]
+    fn join_polls_at_the_library_default() {
+        let cli = Cli::try_parse_from([
+            "lighthouse",
+            "--url",
+            "https://iroh.ichor.io",
+            "join",
+            "--topic",
+            "t",
+        ])
+        .unwrap();
+        assert!(matches!(cli.command, Command::Join { poll, .. } if poll == DEFAULT_POLL_INTERVAL));
     }
 
     #[test]

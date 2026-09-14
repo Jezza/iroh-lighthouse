@@ -49,8 +49,9 @@ cargo run -p iroh-lighthouse --features cli --bin lighthouse -- \
     --url http://127.0.0.1:8080 --no-relays join --topic demo --secret hunter2
 ```
 
-Each `join` prints the other members and keeps printing as they come and go.
-`lookup` reads without joining, `resolve <ENDPOINT_ID>` queries the directory,
+Each `join` prints the other members and keeps printing as they come, go, or
+change address, polling the topic every 10 seconds by default (`--poll` adjusts
+it). `lookup` reads without joining, `resolve <ENDPOINT_ID>` queries the directory,
 `info` describes the server, and `--via-iroh` switches any command to the iroh
 carrier after learning the lighthouse's address over HTTP.
 
@@ -72,7 +73,8 @@ let endpoint = Endpoint::builder(presets::N0)
     .await?;
 
 // Join a topic. The session re-announces at half the granted TTL, re-announces
-// when the endpoint's address changes, and unregisters on `leave`.
+// when the endpoint's address changes, polls the topic every 10 seconds for
+// membership changes (`join_with` sets the interval), and unregisters on `leave`.
 let lighthouse = Lighthouse::http(url);
 let topic = Topic::with_secret("my-app/cluster-1", b"shared secret");
 let session = lighthouse.join(&endpoint, topic, Duration::from_secs(3600)).await?;
@@ -82,7 +84,7 @@ for peer in session.peers() {
     let _conn = endpoint.connect(peer.addr.clone(), b"my-app/1").await?;
 }
 
-// Or watch for changes.
+// Or watch for changes: wakes when a member joins, leaves, or moves.
 let mut peers = session.watch_peers();
 peers.changed().await?;
 
@@ -131,6 +133,7 @@ accept humantime syntax such as `30s`, `5m`, `7d`.
 |---|---|---|
 | `--http-listen` | `127.0.0.1:8080` | HTTP bind address. `--no-http` disables. |
 | `--iroh-port` | `0` | UDP port for the iroh carrier on IPv4. `--no-iroh` disables, `--no-relays` skips the n0 relay infrastructure. |
+| `--iroh-external-addr` | none | Public `IP:PORT` to advertise for the iroh carrier when iroh cannot discover it, such as behind a Docker port mapping. Repeatable; the environment variable takes a comma-separated list. |
 | `--secret-key-file` | `lighthouse.key` | iroh secret key, created with mode 0600 if missing. Keeps the endpoint id stable. |
 | `--snapshot` | `lighthouse.snapshot.json` | Registry snapshot. `--no-snapshot` keeps everything in memory. |
 | `--snapshot-interval` | `5s` | How often to write when dirty. |
@@ -176,6 +179,35 @@ WantedBy=multi-user.target
 
 Open UDP 4433 for the iroh carrier. The key and snapshot live in the state
 directory. On SIGTERM the server writes a final snapshot before exiting.
+
+### Docker
+
+On a bridge network iroh only sees the container's own address, and it can
+only learn the host's public address through the relay if outbound UDP works
+from the container. Pin the UDP port, publish it, and state the public address
+so peers can dial directly either way:
+
+```yaml
+services:
+  lighthouse:
+    build: .
+    ports:
+      - "8080:8080"
+      - "4433:4433/udp"
+    environment:
+      LIGHTHOUSE_HTTP_LISTEN: 0.0.0.0:8080
+      LIGHTHOUSE_IROH_PORT: "4433"
+      LIGHTHOUSE_IROH_EXTERNAL_ADDR: 203.0.113.5:4433
+    volumes:
+      - lighthouse:/data
+    working_dir: /data
+volumes:
+  lighthouse:
+```
+
+Open UDP 4433 in the host or cloud firewall too. Once it works, `GET /v1/info`
+lists the public address and a relay-less dial to it succeeds. `network_mode:
+host` is the alternative that needs neither the port mapping nor the flag.
 
 Clients then use `https://iroh.ichor.io` as the lighthouse URL. Anyone who
 wants the iroh carrier calls `info` first, or is handed the lighthouse

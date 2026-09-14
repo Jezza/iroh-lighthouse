@@ -18,6 +18,7 @@ pub fn test_config() -> Config {
             secret_key: iroh::SecretKey::generate(),
             bind_port: 0,
             relays: false,
+            external_addrs: Vec::new(),
         }),
         snapshot: None,
         sweep_interval: Duration::from_secs(30),
