@@ -1,14 +1,14 @@
 //! Join a topic and print peers as they come and go.
 //!
 //! ```sh
-//! cargo run --example join -- https://ichor.io my-topic [secret]
+//! cargo run --example join -- iroh.ichor.io my-topic [secret]
 //! ```
 
 use std::time::Duration;
 
 use iroh::Endpoint;
 use iroh::endpoint::presets;
-use iroh_lighthouse::{Lighthouse, Topic};
+use iroh_lighthouse::{Lighthouse, Topic, parse_url};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let endpoint = Endpoint::builder(presets::N0).bind().await?;
-    let lighthouse = Lighthouse::http(url.parse()?);
+    let lighthouse = Lighthouse::http(parse_url(&url)?);
     let session = lighthouse
         .join(&endpoint, topic, Duration::from_secs(3600))
         .await?;

@@ -46,8 +46,11 @@ Join a topic from two terminals:
 
 ```sh
 cargo run -p iroh-lighthouse --features cli --bin lighthouse -- \
-    --url http://127.0.0.1:8080 --no-relays join --topic demo --secret hunter2
+    --url 127.0.0.1:8080 --no-relays join --topic demo --secret hunter2
 ```
+
+`--url` takes a full URL or a bare host. A bare host gets `https://`, except
+`localhost` and IP addresses, which get `http://`.
 
 Each `join` prints the other members and keeps printing as they come, go, or
 change address, polling the topic every 10 seconds by default (`--poll` adjusts

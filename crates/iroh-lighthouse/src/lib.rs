@@ -10,7 +10,7 @@ pub mod protocol;
 pub mod session;
 pub mod topic;
 
-pub use client::{Announced, Error, Lighthouse};
+pub use client::{Announced, Error, Lighthouse, parse_url};
 pub use lookup::LighthouseLookup;
 pub use session::{DEFAULT_POLL_INTERVAL, Session};
 pub use topic::{Topic, TopicId};
