@@ -217,6 +217,28 @@ impl Lighthouse {
     }
 }
 
+/// Parse a lighthouse address, filling in the scheme when it is left out.
+///
+/// `iroh.ichor.io` becomes `https://iroh.ichor.io`. `localhost` and IP
+/// addresses get `http://` instead, since those are local or have no
+/// certificate. Input that already has a scheme is used as is.
+pub fn parse_url(input: &str) -> Result<Url, url::ParseError> {
+    if input.contains("://") {
+        return Url::parse(input);
+    }
+    let https = Url::parse(&format!("https://{input}"))?;
+    let local = match https.host() {
+        Some(url::Host::Domain(domain)) => domain == "localhost" || domain.ends_with(".localhost"),
+        Some(url::Host::Ipv4(_) | url::Host::Ipv6(_)) => true,
+        None => false,
+    };
+    if local {
+        Url::parse(&format!("http://{input}"))
+    } else {
+        Ok(https)
+    }
+}
+
 fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -308,4 +330,39 @@ async fn exchange(conn: &Connection, payload: &[u8]) -> Result<Response, Error> 
         .await
         .map_err(Error::iroh)?;
     Ok(serde_json::from_slice(&bytes)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bare_host_defaults_to_https() {
+        let parse = |s| parse_url(s).unwrap().to_string();
+        assert_eq!(parse("iroh.ichor.io"), "https://iroh.ichor.io/");
+        assert_eq!(parse("iroh.ichor.io:8443"), "https://iroh.ichor.io:8443/");
+        assert_eq!(parse("iroh.ichor.io/lighthouse"), "https://iroh.ichor.io/lighthouse");
+    }
+
+    #[test]
+    fn local_and_ip_hosts_default_to_http() {
+        let parse = |s| parse_url(s).unwrap().to_string();
+        assert_eq!(parse("localhost:8080"), "http://localhost:8080/");
+        assert_eq!(parse("127.0.0.1:8080"), "http://127.0.0.1:8080/");
+        assert_eq!(parse("[::1]:8080"), "http://[::1]:8080/");
+        assert_eq!(parse("10.0.0.5:443"), "http://10.0.0.5:443/");
+    }
+
+    #[test]
+    fn explicit_scheme_is_kept() {
+        let parse = |s| parse_url(s).unwrap().to_string();
+        assert_eq!(parse("http://iroh.ichor.io"), "http://iroh.ichor.io/");
+        assert_eq!(parse("https://localhost:8080"), "https://localhost:8080/");
+    }
+
+    #[test]
+    fn garbage_is_rejected() {
+        assert!(parse_url("").is_err());
+        assert!(parse_url("not a host").is_err());
+    }
 }

@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 use iroh::endpoint::presets;
 use iroh::{Endpoint, EndpointId};
 use iroh_lighthouse::protocol::Peer;
-use iroh_lighthouse::{Lighthouse, Topic};
+use iroh_lighthouse::{Lighthouse, Topic, parse_url};
 use url::Url;
 
 #[derive(Parser, Debug)]
@@ -16,8 +16,9 @@ use url::Url;
     about = "Talk to an iroh-lighthouse server"
 )]
 struct Cli {
-    /// Lighthouse URL, for example https://ichor.io
-    #[arg(long, env = "LIGHTHOUSE_URL")]
+    /// Lighthouse URL or host, for example iroh.ichor.io (https is assumed;
+    /// http for localhost and IP addresses)
+    #[arg(long, env = "LIGHTHOUSE_URL", value_parser = parse_url)]
     url: Url,
     /// Fetch the lighthouse's iroh address over HTTP, then use the iroh carrier.
     #[arg(long)]
@@ -230,6 +231,12 @@ mod tests {
         ])
         .unwrap();
         assert!(matches!(cli.command, Command::Join { poll, .. } if poll == DEFAULT_POLL_INTERVAL));
+    }
+
+    #[test]
+    fn bare_host_url_parses() {
+        let cli = Cli::try_parse_from(["lighthouse", "--url", "iroh.ichor.io", "info"]).unwrap();
+        assert_eq!(cli.url.as_str(), "https://iroh.ichor.io/");
     }
 
     #[test]
