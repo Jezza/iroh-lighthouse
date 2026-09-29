@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-iroh-lighthouse = { path = "../iroh-lighthouse" }
+iroh-lighthouse = { path = "../lighthouse" }
 iroh.workspace = true
 tokio.workspace = true
 serde.workspace = true
