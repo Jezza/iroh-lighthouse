@@ -188,7 +188,52 @@ impl Lighthouse {
         ttl: Duration,
         poll_interval: Option<Duration>,
     ) -> Result<Session, Error> {
-        Session::start(self.clone(), endpoint.clone(), topic, ttl, poll_interval).await
+        Session::start(
+            self.clone(),
+            endpoint.clone(),
+            topic,
+            ttl,
+            poll_interval,
+            #[cfg(feature = "dht-fallback")]
+            None,
+        )
+        .await
+    }
+
+    /// [`join`](Self::join) with a DHT fallback for when this lighthouse is
+    /// unreachable.
+    ///
+    /// Behaves exactly like [`join`](Self::join) while the lighthouse answers.
+    /// When it does not, the session publishes its address to, and reads the
+    /// topic's members from, the BitTorrent mainline DHT — so a topic keeps
+    /// working through an outage, and a node can even join during one.
+    ///
+    /// The lighthouse is retried on the usual backoff throughout; the DHT is a
+    /// stand-in, never a replacement. Peers found either way are ordinary
+    /// [`Peer`](crate::protocol::Peer) values carrying a full address, so
+    /// callers cannot tell — and do not need to — which path produced them.
+    ///
+    /// The topic's secret gates the DHT slot as well as the lighthouse topic
+    /// id, so a private topic stays private on the fallback path. See
+    /// [`fallback`](crate::fallback) for how that derivation works.
+    #[cfg(feature = "dht-fallback")]
+    pub async fn join_with_fallback(
+        &self,
+        endpoint: &Endpoint,
+        topic: Topic,
+        ttl: Duration,
+        poll_interval: Option<Duration>,
+    ) -> Result<Session, Error> {
+        let fallback = std::sync::Arc::new(crate::fallback::DhtFallback::new(endpoint, &topic));
+        Session::start(
+            self.clone(),
+            endpoint.clone(),
+            topic,
+            ttl,
+            poll_interval,
+            Some(fallback),
+        )
+        .await
     }
 
     /// Describe the lighthouse.
