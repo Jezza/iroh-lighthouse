@@ -61,38 +61,42 @@ carrier after learning the lighthouse's address over HTTP.
 ## Using the library
 
 ```rust
-use std::time::Duration;
 use iroh::{Endpoint, endpoint::presets};
-use iroh_lighthouse::{Lighthouse, LighthouseLookup, Topic};
+use iroh_lighthouse::{Lighthouse, LighthouseLookup, Topic, parse_url};
+use std::time::Duration;
 
-# async fn run() -> Result<(), Box<dyn std::error::Error>> {
-let url: url::Url = "https://iroh.ichor.io".parse()?;
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let url = parse_url("https://iroh.ichor.io")?;
 
-// Optional: let iroh resolve any published peer by id through the lighthouse,
-// and publish this endpoint's own address to the lighthouse directory.
-let endpoint = Endpoint::builder(presets::N0)
-    .address_lookup(LighthouseLookup::http(url.clone()))
-    .bind()
-    .await?;
+    // Optional: let iroh resolve any published peer by id through the lighthouse,
+    // and publish this endpoint's own address to the lighthouse directory.
+    let endpoint = Endpoint::builder(presets::N0)
+        .address_lookup(LighthouseLookup::http(url.clone()))
+        .bind()
+        .await?;
 
-// Join a topic. The session re-announces at half the granted TTL, re-announces
-// when the endpoint's address changes, polls the topic every 10 seconds for
-// membership changes (`join_with` sets the interval), and unregisters on `leave`.
-let lighthouse = Lighthouse::http(url);
-let topic = Topic::with_secret("my-app/cluster-1", b"shared secret");
-let session = lighthouse.join(&endpoint, topic, Duration::from_secs(3600)).await?;
+    // Join a topic. The session re-announces at half the granted TTL, re-announces
+    // when the endpoint's address changes, polls the topic every 10 seconds for
+    // membership changes (`join_with` sets the interval), and unregisters on `leave`.
+    let lighthouse = Lighthouse::http(url);
+    let topic = Topic::with_secret("my-app/cluster-1", b"shared secret");
+    let session = lighthouse
+        .join(&endpoint, topic, Duration::from_secs(3600))
+        .await?;
 
-for peer in session.peers() {
-    // peer.addr is a full iroh EndpointAddr: dial it directly.
-    let _conn = endpoint.connect(peer.addr.clone(), b"my-app/1").await?;
+    for peer in session.peers() {
+        // peer.addr is a full iroh EndpointAddr: dial it directly.
+        let _conn = endpoint.connect(peer.addr.clone(), b"my-app/1").await?;
+    }
+
+    // Or watch for changes: wakes when a member joins, leaves, or moves.
+    let mut peers = session.watch_peers();
+    peers.changed().await?;
+
+    session.leave().await?;
+    Ok(())
 }
-
-// Or watch for changes: wakes when a member joins, leaves, or moves.
-let mut peers = session.watch_peers();
-peers.changed().await?;
-
-session.leave().await?;
-# Ok(()) }
 ```
 
 One-shot calls are available too: `lighthouse.announce(..)`, `lookup(..)`,
