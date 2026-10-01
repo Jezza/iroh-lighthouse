@@ -7,9 +7,14 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/peeriot/iroh-lighthouse"
+repository = "https://github.com/Jezza/iroh-lighthouse"
 
 [workspace.dependencies]
+# Internal crates: crates.io needs a version alongside the path. Keep in step
+# with workspace.package.version.
+iroh-lighthouse-protocol = { path = "crates/protocol", version = "0.1.0" }
+iroh-lighthouse-client = { path = "crates/client", version = "0.1.0" }
+
 # aws-lc-rs everywhere: reqwest 0.13's `rustls` feature is aws-lc-rs only, and
 # mixing it with iroh's default ring provider makes rustls panic at runtime when
 # no process-level provider is installed. One provider, no ambiguity.

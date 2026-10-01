@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-iroh-lighthouse-protocol = { path = "../protocol" }
+iroh-lighthouse-protocol.workspace = true
 iroh.workspace = true
 tokio.workspace = true
 serde.workspace = true

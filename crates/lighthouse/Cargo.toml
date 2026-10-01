@@ -12,7 +12,7 @@ name = "lighthouse"
 path = "src/main.rs"
 
 [dependencies]
-iroh-lighthouse-protocol = { path = "../protocol" }
+iroh-lighthouse-protocol.workspace = true
 iroh.workspace = true
 tokio.workspace = true
 serde.workspace = true
@@ -26,7 +26,7 @@ n0-future.workspace = true
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 
 [dev-dependencies]
-iroh-lighthouse-client = { path = "../client" }
+iroh-lighthouse-client.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tempfile = "3"
 url.workspace = true
