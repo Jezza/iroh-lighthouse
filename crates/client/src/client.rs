@@ -9,12 +9,12 @@ use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
 use tokio::sync::Mutex;
 use url::Url;
 
+use crate::Topic;
 use crate::protocol::{
     ALPN, AnnounceBody, ErrorBody, ErrorCode, HTTP_ANNOUNCE, HTTP_INFO, HTTP_LOOKUP, HTTP_RESOLVE,
     Info, LookupBody, MAX_MESSAGE_SIZE, Peer, Request, Response,
 };
 use crate::session::{DEFAULT_POLL_INTERVAL, Session};
-use crate::topic::Topic;
 
 /// Result of a successful announce.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -341,7 +341,10 @@ mod tests {
         let parse = |s| parse_url(s).unwrap().to_string();
         assert_eq!(parse("iroh.ichor.io"), "https://iroh.ichor.io/");
         assert_eq!(parse("iroh.ichor.io:8443"), "https://iroh.ichor.io:8443/");
-        assert_eq!(parse("iroh.ichor.io/lighthouse"), "https://iroh.ichor.io/lighthouse");
+        assert_eq!(
+            parse("iroh.ichor.io/lighthouse"),
+            "https://iroh.ichor.io/lighthouse"
+        );
     }
 
     #[test]

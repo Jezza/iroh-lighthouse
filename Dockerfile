@@ -7,7 +7,7 @@ COPY . .
 RUN cargo build --release
 
 FROM gcr.io/distroless/cc-debian12
-COPY --from=builder /app/target/release/iroh-lighthouse-server /
+COPY --from=builder /app/target/release/iroh-lighthouse /
 EXPOSE 3001
 EXPOSE 4433/udp
-CMD ["/iroh-lighthouse-server"]
+CMD ["/iroh-lighthouse"]

@@ -9,9 +9,9 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::{debug, warn};
 
+use crate::Topic;
 use crate::client::{Error, Lighthouse};
 use crate::protocol::Peer;
-use crate::topic::Topic;
 
 /// How often a session polls the topic for membership changes unless
 /// [`Lighthouse::join_with`] says otherwise.

@@ -7,7 +7,7 @@ use std::sync::{Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use iroh::EndpointAddr;
-use iroh_lighthouse::protocol::{
+use iroh_lighthouse_protocol::{
     Announce, AnnounceBody, ErrorCode, Info, Lookup, Peer, Request, Response,
 };
 
@@ -175,8 +175,8 @@ mod tests {
     use std::net::SocketAddr;
 
     use iroh::{EndpointId, SecretKey};
-    use iroh_lighthouse::Topic;
-    use iroh_lighthouse::protocol::{AnnounceBody, LookupBody, Peer};
+    use iroh_lighthouse_protocol::Topic;
+    use iroh_lighthouse_protocol::{AnnounceBody, LookupBody, Peer};
 
     use super::*;
 

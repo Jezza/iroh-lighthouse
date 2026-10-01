@@ -5,8 +5,8 @@ use std::time::Duration;
 use clap::{Parser, Subcommand};
 use iroh::endpoint::presets;
 use iroh::{Endpoint, EndpointId};
-use iroh_lighthouse::protocol::Peer;
-use iroh_lighthouse::{Lighthouse, Topic, parse_url};
+use iroh_lighthouse_client::protocol::Peer;
+use iroh_lighthouse_client::{Lighthouse, Topic, parse_url};
 use url::Url;
 
 #[derive(Parser, Debug)]
@@ -181,7 +181,7 @@ async fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use iroh_lighthouse::DEFAULT_POLL_INTERVAL;
+    use iroh_lighthouse_client::DEFAULT_POLL_INTERVAL;
 
     use super::*;
 

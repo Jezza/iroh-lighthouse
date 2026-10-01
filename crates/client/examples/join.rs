@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use iroh::Endpoint;
 use iroh::endpoint::presets;
-use iroh_lighthouse::{Lighthouse, Topic, parse_url};
+use iroh_lighthouse_client::{Lighthouse, Topic, parse_url};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

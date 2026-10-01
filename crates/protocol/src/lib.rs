@@ -1,4 +1,4 @@
-//! Wire protocol shared by the client and the server.
+//! Wire protocol and topic keys shared by the iroh-lighthouse client and server.
 //!
 //! Messages are JSON on both carriers. Signed bodies are encoded with postcard
 //! before signing, prefixed by a domain string so a signature can never be
@@ -7,7 +7,9 @@
 use iroh::{EndpointAddr, EndpointId, SecretKey, Signature};
 use serde::{Deserialize, Serialize};
 
-use crate::topic::{Topic, TopicId};
+pub mod topic;
+
+pub use topic::{Topic, TopicId};
 
 /// ALPN of the iroh carrier.
 pub const ALPN: &[u8] = b"iroh-lighthouse/1";

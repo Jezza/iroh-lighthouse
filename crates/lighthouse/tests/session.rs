@@ -5,8 +5,8 @@ mod common;
 use std::time::Duration;
 
 use common::{dialable, endpoint, http_client, iroh_client, test_config};
-use iroh_lighthouse::Topic;
-use iroh_lighthouse_server::{Server, SnapshotConfig};
+use iroh_lighthouse::{Server, SnapshotConfig};
+use iroh_lighthouse_client::Topic;
 
 #[tokio::test]
 async fn join_returns_initial_peers_and_watch_sees_later_joiners() {
@@ -202,9 +202,9 @@ async fn registrations_survive_a_restart_via_snapshot() {
 
 /// Wait until the watched peer list satisfies `pred`, or fail after 10s.
 async fn wait_for(
-    watch: &mut tokio::sync::watch::Receiver<Vec<iroh_lighthouse::protocol::Peer>>,
+    watch: &mut tokio::sync::watch::Receiver<Vec<iroh_lighthouse_client::protocol::Peer>>,
     what: &str,
-    pred: impl Fn(&[iroh_lighthouse::protocol::Peer]) -> bool,
+    pred: impl Fn(&[iroh_lighthouse_client::protocol::Peer]) -> bool,
 ) {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {

@@ -69,7 +69,7 @@ mod tests {
     use std::net::SocketAddr;
 
     use iroh::{EndpointAddr, SecretKey};
-    use iroh_lighthouse::Topic;
+    use iroh_lighthouse_protocol::Topic;
 
     use super::*;
     use crate::registry::SizeLimits;

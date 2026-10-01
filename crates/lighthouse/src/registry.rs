@@ -6,8 +6,8 @@
 use std::collections::HashMap;
 
 use iroh::{EndpointAddr, EndpointId};
-use iroh_lighthouse::TopicId;
-use iroh_lighthouse::protocol::Peer;
+use iroh_lighthouse_protocol::Peer;
+use iroh_lighthouse_protocol::TopicId;
 use serde::{Deserialize, Serialize};
 
 /// One registered node.
@@ -189,7 +189,7 @@ mod tests {
     use std::net::SocketAddr;
 
     use iroh::SecretKey;
-    use iroh_lighthouse::Topic;
+    use iroh_lighthouse_protocol::Topic;
 
     use super::*;
 

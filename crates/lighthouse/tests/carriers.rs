@@ -6,9 +6,9 @@ use std::time::Duration;
 
 use common::{dialable, endpoint, http_client, iroh_client, test_config};
 use iroh::Endpoint;
-use iroh_lighthouse::protocol::ErrorCode;
-use iroh_lighthouse::{Lighthouse, Topic};
-use iroh_lighthouse_server::Server;
+use iroh_lighthouse::Server;
+use iroh_lighthouse_client::protocol::ErrorCode;
+use iroh_lighthouse_client::{Lighthouse, Topic};
 
 const TTL: Duration = Duration::from_secs(60);
 

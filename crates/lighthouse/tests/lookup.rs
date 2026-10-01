@@ -7,8 +7,8 @@ use std::time::Duration;
 use common::{dialable, endpoint, http_client, test_config};
 use iroh::endpoint::presets;
 use iroh::{Endpoint, EndpointAddr};
-use iroh_lighthouse::LighthouseLookup;
-use iroh_lighthouse_server::Server;
+use iroh_lighthouse::Server;
+use iroh_lighthouse_client::LighthouseLookup;
 
 const TEST_ALPN: &[u8] = b"lighthouse-test/echo";
 

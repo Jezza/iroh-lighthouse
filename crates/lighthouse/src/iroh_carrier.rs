@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use iroh::endpoint::{Connection, ReadToEndError, RecvStream, SendStream};
 use iroh::protocol::{AcceptError, ProtocolHandler};
-use iroh_lighthouse::protocol::{ErrorCode, MAX_MESSAGE_SIZE, Request, Response};
+use iroh_lighthouse_protocol::{ErrorCode, MAX_MESSAGE_SIZE, Request, Response};
 use tracing::debug;
 
 use crate::handler::{Ctx, handle};

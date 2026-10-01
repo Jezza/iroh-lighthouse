@@ -6,10 +6,10 @@ use std::time::Duration;
 
 use iroh::endpoint::presets;
 use iroh::{Endpoint, EndpointAddr, Watcher};
-use iroh_lighthouse::Lighthouse;
-use iroh_lighthouse_server::handler::Limits;
-use iroh_lighthouse_server::registry::SizeLimits;
-use iroh_lighthouse_server::{Config, IrohConfig, Server};
+use iroh_lighthouse::handler::Limits;
+use iroh_lighthouse::registry::SizeLimits;
+use iroh_lighthouse::{Config, IrohConfig, Server};
+use iroh_lighthouse_client::Lighthouse;
 
 pub fn test_config() -> Config {
     Config {

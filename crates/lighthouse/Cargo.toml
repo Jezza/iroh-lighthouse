@@ -1,6 +1,6 @@
 [package]
 name = "iroh-lighthouse"
-description = "Topic rendezvous and address lookup for iroh nodes via a lighthouse server reachable by URL or over iroh"
+description = "Topic rendezvous and address lookup server for iroh nodes: HTTP and iroh carriers over one protocol"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,30 +8,21 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+iroh-lighthouse-protocol = { path = "../protocol" }
 iroh.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-postcard.workspace = true
-blake3.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-url.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+humantime.workspace = true
 n0-future.workspace = true
-n0-watcher.workspace = true
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
-clap = { workspace = true, optional = true }
-humantime = { workspace = true, optional = true }
-tracing-subscriber = { workspace = true, optional = true }
-anyhow = { version = "1", optional = true }
-
-[features]
-cli = ["dep:clap", "dep:humantime", "dep:tracing-subscriber", "dep:anyhow", "tokio/rt-multi-thread", "tokio/signal"]
-
-[[bin]]
-name = "lighthouse"
-required-features = ["cli"]
-path = "src/bin/lighthouse.rs"
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 
 [dev-dependencies]
+iroh-lighthouse-client = { path = "../client" }
 tokio = { workspace = true, features = ["full"] }
+tempfile = "3"
+url.workspace = true

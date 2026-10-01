@@ -1,6 +1,6 @@
 use clap::Parser;
-use iroh_lighthouse_server::Server;
-use iroh_lighthouse_server::cli::Cli;
+use iroh_lighthouse::Server;
+use iroh_lighthouse::cli::Cli;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
