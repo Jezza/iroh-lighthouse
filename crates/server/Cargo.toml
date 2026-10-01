@@ -26,3 +26,7 @@ axum = { version = "0.8", default-features = false, features = ["http1", "json",
 tokio = { workspace = true, features = ["full"] }
 tempfile = "3"
 url.workspace = true
+# The fallback integration test drives the client's dht-fallback path against a
+# real in-process server. Enabling it here (dev-only) keeps the feature off for
+# anyone depending on the server crate normally.
+iroh-lighthouse = { path = "../lighthouse", features = ["dht-fallback"] }

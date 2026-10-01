@@ -24,10 +24,61 @@ the same server speaks HTTPS and native iroh over one protocol.
 
 | Crate | What it is |
 |---|---|
-| `iroh-lighthouse` | Library: protocol types, topic keys, the `Lighthouse` client, self-refreshing `Session`, and `LighthouseLookup` (an iroh `AddressLookup`). Feature `cli` adds the `lighthouse` binary. |
+| `iroh-lighthouse` | Library: protocol types, topic keys, the `Lighthouse` client, self-refreshing `Session`, and `LighthouseLookup` (an iroh `AddressLookup`). Feature `cli` adds the `lighthouse` binary; feature `dht-fallback` adds serverless bootstrap over the mainline DHT. |
 | `iroh-lighthouse-server` | The server binary, also usable as a library for embedding and tests. |
 
 Requires Rust 1.91 or newer and iroh 1.2.
+
+## Surviving the lighthouse (`dht-fallback`)
+
+A lighthouse is one round trip and an exact answer, but it is also a single
+dependency: if it is unreachable, nobody joins. The optional `dht-fallback`
+feature adds a second, serverless way to find the same topic's members, using
+[`distributed-topic-tracker`](https://github.com/rustonbsd/distributed-topic-tracker)
+over the BitTorrent mainline DHT.
+
+```toml
+iroh-lighthouse = { version = "0.1", features = ["dht-fallback"] }
+```
+
+```rust,ignore
+let session = lighthouse
+    .join_with_fallback(&endpoint, topic, Duration::from_secs(3600), None)
+    .await?;
+```
+
+While the lighthouse answers, this behaves exactly like `join`. When it does
+not, the session publishes its address to and reads members from the DHT, so a
+topic keeps working through an outage — and a node can join during one. The
+lighthouse is retried on the usual backoff throughout; the DHT is a stand-in,
+never a replacement. Peers found either way are ordinary `Peer` values carrying
+a full `EndpointAddr`, so callers cannot tell which path produced them.
+
+**The topic secret covers both paths.** The DHT slot is derived from the topic
+id *and* a secret obtained by signing a domain-separated constant with the topic
+key. Ed25519 signatures are deterministic, so every holder of the topic derives
+the same value and nobody else can — without `Topic` ever exposing its secret
+key. A private topic therefore stays private on the fallback path: its slot
+cannot be located, written, or read by someone who knows only the name.
+
+The trade-offs are real and worth stating. The DHT path is slower (DHT round
+trips rather than one request), coarser (records rotate every minute, so
+membership lags), and has no authoritative member list or enforced limits. It
+is off by default because it pulls in a DHT stack and talks to a public
+network — a decision to opt into, not a default.
+
+**Membership over the DHT is partial, by construction.** All publishers on a
+topic share one BEP44 mutable item, and each storing node keeps a single value
+per `(key, salt)`, so a publish displaces earlier records on the nodes it
+reaches and a read returns the union across the nodes it happens to hit. Which
+peers you see is therefore probabilistic, and two nodes may not see each other
+symmetrically. That is sufficient for what this is for: bootstrap needs *one*
+reachable peer to join the gossip mesh, not a complete list, and gossip
+distributes the rest. It is not a substitute for the lighthouse's exact answer.
+
+For the same reason the fallback always **reads before it publishes**. Getting
+that order wrong is silent and costly: with the announce first, the second node
+to publish destroyed the very record it was about to read and saw zero peers.
 
 ## Quick start
 
