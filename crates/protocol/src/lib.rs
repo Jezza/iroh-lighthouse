@@ -1,8 +1,36 @@
 //! Wire protocol and topic keys shared by the iroh-lighthouse client and server.
 //!
-//! Messages are JSON on both carriers. Signed bodies are encoded with postcard
-//! before signing, prefixed by a domain string so a signature can never be
-//! replayed as a different message type.
+//! Messages are JSON on both carriers.
+//!
+//! # Signing: sign the bytes you send
+//!
+//! A signed request carries its body as a **base64url string** (`payload`), and
+//! the signature covers exactly:
+//!
+//! ```text
+//! domain ‖ "." ‖ payload
+//! ```
+//!
+//! all of it ASCII. The verifier checks the signature against the `payload`
+//! string **as received** and never re-encodes anything, so there is no
+//! canonical form for the two sides to agree on.
+//!
+//! That is the whole point of the design. The earlier scheme re-serialized the
+//! parsed body with postcard and signed that, which meant every implementation
+//! had to reproduce postcard byte-for-byte — varint widths, `BTreeSet`
+//! ordering, and the fact that an iroh `PublicKey` serializes as a hex string
+//! in JSON but as 32 raw bytes in a binary format. Now a client needs
+//! `JSON.stringify`, base64url, and ed25519.
+//!
+//! Two further properties fall out of it:
+//!
+//! - **Unknown fields survive.** A newer client that adds a field still
+//!   verifies against an older server, because the signature covers the bytes
+//!   rather than the parse.
+//! - **Field order stops mattering**, so any JSON library will do.
+//!
+//! The domain prefix keeps a signature from being replayed as a different
+//! message type.
 
 use iroh::{EndpointAddr, EndpointId, SecretKey, Signature};
 use serde::{Deserialize, Serialize};
@@ -34,6 +62,9 @@ pub const HTTP_INFO: &str = "/v1/info";
 pub const HTTP_HEALTH: &str = "/v1/health";
 
 /// The signed part of an announce.
+///
+/// Carried on the wire inside [`Announce::payload`] as base64url JSON, not as
+/// a nested object — the signature covers those bytes verbatim.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnnounceBody {
     /// Topic to register on, or `None` to publish to the directory.
@@ -49,14 +80,17 @@ pub struct AnnounceBody {
 /// A signed announce request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Announce {
-    pub body: AnnounceBody,
-    /// Signature by the key of `body.addr.id`.
+    /// base64url of the JSON [`AnnounceBody`]. Signed as received.
+    pub payload: String,
+    /// Signature by the key of the body's `addr.id`.
     pub node_sig: Signature,
-    /// Signature by the topic key; required exactly when `body.topic` is set.
+    /// Signature by the topic key; required exactly when the body names a topic.
     pub topic_sig: Option<Signature>,
 }
 
 /// The signed part of a lookup.
+///
+/// Carried on the wire inside [`Lookup::payload`] as base64url JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LookupBody {
     pub topic: TopicId,
@@ -66,7 +100,8 @@ pub struct LookupBody {
 /// A signed lookup request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Lookup {
-    pub body: LookupBody,
+    /// base64url of the JSON [`LookupBody`]. Signed as received.
+    pub payload: String,
     pub topic_sig: Signature,
 }
 
@@ -157,6 +192,10 @@ impl Response {
 /// Why a signed request failed verification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum VerifyError {
+    #[error("payload is not valid base64url")]
+    Payload,
+    #[error("payload is not a valid JSON body")]
+    Body,
     #[error("node signature does not verify against the announced endpoint id")]
     NodeSignature,
     #[error("topic signature does not verify against the topic id")]
@@ -167,79 +206,113 @@ pub enum VerifyError {
     UnexpectedTopicSignature,
 }
 
-/// Domain prefix followed by the postcard encoding of `body`.
+/// base64url, no padding: the alphabet every JWS-style scheme uses, and the
+/// one `btoa`-free browser code reaches for.
+const B64: data_encoding::Encoding = data_encoding::BASE64URL_NOPAD;
+
+/// Encode a body as the `payload` string that gets signed and sent.
+fn encode_payload<T: Serialize>(body: &T) -> String {
+    let json = serde_json::to_vec(body).expect("serializing an in-memory body cannot fail");
+    B64.encode(&json)
+}
+
+/// The exact bytes a signature covers: `domain ‖ "." ‖ payload`, all ASCII.
 ///
-/// postcard is deterministic for our bodies: every field is a primitive, an
-/// `Option`, a key encoded as raw bytes, or an ordered set of transport addresses.
-fn signing_bytes<T: Serialize>(domain: &[u8], body: &T) -> Vec<u8> {
-    let bytes = domain.to_vec();
-    postcard::to_extend(body, bytes).expect("postcard encoding of an in-memory body cannot fail")
+/// Built from the payload **string**, never from a re-encoded body, so signing
+/// and verifying cannot disagree about a canonical form.
+pub fn signing_bytes(domain: &[u8], payload: &str) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(domain.len() + 1 + payload.len());
+    bytes.extend_from_slice(domain);
+    bytes.push(b'.');
+    bytes.extend_from_slice(payload.as_bytes());
+    bytes
+}
+
+/// Decode a payload string back into a body.
+fn decode_payload<T: for<'de> Deserialize<'de>>(payload: &str) -> Result<T, VerifyError> {
+    let json = B64
+        .decode(payload.as_bytes())
+        .map_err(|_| VerifyError::Payload)?;
+    serde_json::from_slice(&json).map_err(|_| VerifyError::Body)
 }
 
 impl AnnounceBody {
-    /// The exact bytes that get signed: domain prefix plus postcard encoding.
-    pub fn signing_bytes(&self) -> Vec<u8> {
-        signing_bytes(ANNOUNCE_DOMAIN, self)
-    }
-
     /// Sign with the node's key and, when a topic is set, the topic key.
     ///
     /// `topic` must be `Some` exactly when `self.topic` is set; the caller is
     /// expected to construct the body from the same topic.
     pub fn sign(self, node_key: &SecretKey, topic: Option<&Topic>) -> Announce {
-        let bytes = self.signing_bytes();
+        let payload = encode_payload(&self);
+        let bytes = signing_bytes(ANNOUNCE_DOMAIN, &payload);
         Announce {
             node_sig: node_key.sign(&bytes),
             topic_sig: topic.map(|t| t.sign(&bytes)),
-            body: self,
+            payload,
         }
     }
 }
 
 impl Announce {
-    /// Check every signature against the keys named in the body.
-    pub fn verify(&self) -> Result<(), VerifyError> {
-        let bytes = self.body.signing_bytes();
-        self.body
-            .addr
+    /// Decode the payload without checking any signature.
+    ///
+    /// Only for checks that can do nothing but reject, such as freshness.
+    /// Anything acted on should come from [`verify`](Self::verify), which
+    /// returns the same body once the signatures check out.
+    pub fn body(&self) -> Result<AnnounceBody, VerifyError> {
+        decode_payload(&self.payload)
+    }
+
+    /// Check every signature, then return the body it covers.
+    ///
+    /// Returning the body is deliberate: it makes "verify, then use" the path
+    /// of least resistance.
+    pub fn verify(&self) -> Result<AnnounceBody, VerifyError> {
+        let bytes = signing_bytes(ANNOUNCE_DOMAIN, &self.payload);
+        let body = self.body()?;
+        body.addr
             .id
             .verify(&bytes, &self.node_sig)
             .map_err(|_| VerifyError::NodeSignature)?;
-        match (&self.body.topic, &self.topic_sig) {
+        match (&body.topic, &self.topic_sig) {
             (Some(topic), Some(sig)) => topic
                 .0
                 .verify(&bytes, sig)
-                .map_err(|_| VerifyError::TopicSignature),
-            (Some(_), None) => Err(VerifyError::MissingTopicSignature),
-            (None, Some(_)) => Err(VerifyError::UnexpectedTopicSignature),
-            (None, None) => Ok(()),
+                .map_err(|_| VerifyError::TopicSignature)?,
+            (Some(_), None) => return Err(VerifyError::MissingTopicSignature),
+            (None, Some(_)) => return Err(VerifyError::UnexpectedTopicSignature),
+            (None, None) => {}
         }
+        Ok(body)
     }
 }
 
 impl LookupBody {
-    /// The exact bytes that get signed: domain prefix plus postcard encoding.
-    pub fn signing_bytes(&self) -> Vec<u8> {
-        signing_bytes(LOOKUP_DOMAIN, self)
-    }
-
     /// Sign with the topic key.
     pub fn sign(self, topic: &Topic) -> Lookup {
+        let payload = encode_payload(&self);
         Lookup {
-            topic_sig: topic.sign(&self.signing_bytes()),
-            body: self,
+            topic_sig: topic.sign(&signing_bytes(LOOKUP_DOMAIN, &payload)),
+            payload,
         }
     }
 }
 
 impl Lookup {
-    /// Check the topic signature against the topic id in the body.
-    pub fn verify(&self) -> Result<(), VerifyError> {
-        self.body
-            .topic
+    /// Decode the payload without checking the signature. See
+    /// [`Announce::body`] for when that is appropriate.
+    pub fn body(&self) -> Result<LookupBody, VerifyError> {
+        decode_payload(&self.payload)
+    }
+
+    /// Check the topic signature, then return the body it covers.
+    pub fn verify(&self) -> Result<LookupBody, VerifyError> {
+        let bytes = signing_bytes(LOOKUP_DOMAIN, &self.payload);
+        let body = self.body()?;
+        body.topic
             .0
-            .verify(&self.body.signing_bytes(), &self.topic_sig)
-            .map_err(|_| VerifyError::TopicSignature)
+            .verify(&bytes, &self.topic_sig)
+            .map_err(|_| VerifyError::TopicSignature)?;
+        Ok(body)
     }
 }
 
@@ -269,26 +342,52 @@ mod tests {
     fn signed_topic_announce_verifies() {
         let topic = Topic::with_secret("chat", b"s");
         let (key, addr) = node();
-        let announce = announce_body(Some(&topic), addr).sign(&key, Some(&topic));
+        let body = announce_body(Some(&topic), addr);
+        let announce = body.clone().sign(&key, Some(&topic));
         assert!(announce.topic_sig.is_some());
-        assert_eq!(announce.verify(), Ok(()));
+        assert_eq!(announce.verify(), Ok(body));
     }
 
     #[test]
     fn signed_directory_announce_verifies_without_topic_signature() {
         let (key, addr) = node();
-        let announce = announce_body(None, addr).sign(&key, None);
+        let body = announce_body(None, addr);
+        let announce = body.clone().sign(&key, None);
         assert!(announce.topic_sig.is_none());
-        assert_eq!(announce.verify(), Ok(()));
+        assert_eq!(announce.verify(), Ok(body));
     }
 
+    /// Editing the signed bytes must break the signature.
+    ///
+    /// With the body carried as an opaque payload there is no field to poke,
+    /// so this re-encodes a modified body — exactly what an attacker rewriting
+    /// a request in flight would have to do.
     #[test]
     fn tampered_body_fails_verification() {
         let topic = Topic::new("chat");
         let (key, addr) = node();
-        let mut announce = announce_body(Some(&topic), addr).sign(&key, Some(&topic));
-        announce.body.ttl_secs += 1;
+        let mut announce = announce_body(Some(&topic), addr.clone()).sign(&key, Some(&topic));
+
+        let mut tampered = announce.body().unwrap();
+        tampered.ttl_secs += 1;
+        announce.payload = encode_payload(&tampered);
+
         assert_eq!(announce.verify(), Err(VerifyError::NodeSignature));
+    }
+
+    /// A payload that is not base64url, or not a valid body, is rejected
+    /// before any signature check can be attempted.
+    #[test]
+    fn malformed_payloads_are_rejected() {
+        let topic = Topic::new("chat");
+        let (key, addr) = node();
+        let mut announce = announce_body(Some(&topic), addr).sign(&key, Some(&topic));
+
+        announce.payload = "not base64!!".to_string();
+        assert_eq!(announce.verify(), Err(VerifyError::Payload));
+
+        announce.payload = B64.encode(b"{\"not\": \"an announce\"}");
+        assert_eq!(announce.verify(), Err(VerifyError::Body));
     }
 
     #[test]
@@ -338,7 +437,7 @@ mod tests {
             ts: 1_757_850_010,
         };
         let lookup = body.clone().sign(&topic);
-        assert_eq!(lookup.verify(), Ok(()));
+        assert_eq!(lookup.verify(), Ok(body.clone()));
 
         let wrong = body.sign(&Topic::new("chat"));
         assert_eq!(wrong.verify(), Err(VerifyError::TopicSignature));
@@ -346,37 +445,85 @@ mod tests {
 
     #[test]
     fn signing_bytes_are_domain_separated() {
+        let payload = "SGVsbG8";
+        assert!(signing_bytes(ANNOUNCE_DOMAIN, payload).starts_with(ANNOUNCE_DOMAIN));
+        assert!(signing_bytes(LOOKUP_DOMAIN, payload).starts_with(LOOKUP_DOMAIN));
+        assert_ne!(
+            signing_bytes(ANNOUNCE_DOMAIN, payload),
+            signing_bytes(LOOKUP_DOMAIN, payload),
+            "the same payload under two domains must sign differently"
+        );
+
+        // A topic signature over the bare payload, without the domain prefix,
+        // must not verify as a lookup.
         let topic = Topic::new("chat");
-        let announce = AnnounceBody {
-            topic: Some(topic.id()),
-            addr: node().1,
-            ttl_secs: 1,
-            ts: 1,
-        };
-        let lookup = LookupBody {
+        let body = LookupBody {
             topic: topic.id(),
             ts: 1,
         };
-        assert!(announce.signing_bytes().starts_with(ANNOUNCE_DOMAIN));
-        assert!(lookup.signing_bytes().starts_with(LOOKUP_DOMAIN));
-
-        // A topic signature over the raw postcard body, without the domain,
-        // must not verify as a lookup.
-        let raw = postcard::to_allocvec(&lookup).unwrap();
+        let payload = encode_payload(&body);
         let forged = Lookup {
-            body: lookup,
-            topic_sig: topic.sign(&raw),
+            topic_sig: topic.sign(payload.as_bytes()),
+            payload,
         };
         assert_eq!(forged.verify(), Err(VerifyError::TopicSignature));
     }
 
+    /// A signature made for one message type must not verify as another, even
+    /// when the payload bytes happen to be identical.
     #[test]
-    fn signing_bytes_are_deterministic_across_round_trip() {
+    fn a_lookup_signature_cannot_be_replayed_as_an_announce() {
+        let topic = Topic::with_secret("chat", b"s");
+        let (key, addr) = node();
+        let announce = announce_body(Some(&topic), addr).sign(&key, Some(&topic));
+
+        // Same payload, but signed under the lookup domain.
+        let stolen = topic.sign(&signing_bytes(LOOKUP_DOMAIN, &announce.payload));
+        let forged = Announce {
+            payload: announce.payload.clone(),
+            node_sig: announce.node_sig,
+            topic_sig: Some(stolen),
+        };
+        assert_eq!(forged.verify(), Err(VerifyError::TopicSignature));
+    }
+
+    /// The signature survives a JSON round trip of the whole request, because
+    /// it covers the payload string rather than a re-encoding of the body.
+    #[test]
+    fn signature_survives_a_json_round_trip() {
         let topic = Topic::new("chat");
-        let body = announce_body(Some(&topic), node().1);
-        let json = serde_json::to_string(&body).unwrap();
-        let decoded: AnnounceBody = serde_json::from_str(&json).unwrap();
-        assert_eq!(body.signing_bytes(), decoded.signing_bytes());
+        let (key, addr) = node();
+        let req = Request::Announce(announce_body(Some(&topic), addr).sign(&key, Some(&topic)));
+        let json = serde_json::to_string(&req).unwrap();
+        let back: Request = serde_json::from_str(&json).unwrap();
+        let Request::Announce(announce) = back else {
+            panic!("wrong variant")
+        };
+        assert!(announce.verify().is_ok());
+    }
+
+    /// An unknown field added by a newer client does not break verification on
+    /// an older server: the signature covers bytes, not the parse.
+    #[test]
+    fn unknown_fields_in_the_payload_still_verify() {
+        let topic = Topic::new("chat");
+        let (key, addr) = node();
+
+        // Build a payload by hand with an extra field a future version might add.
+        let mut value = serde_json::to_value(announce_body(Some(&topic), addr)).unwrap();
+        value["future_field"] = serde_json::json!("ignored by this version");
+        let payload = B64.encode(serde_json::to_vec(&value).unwrap().as_slice());
+
+        let bytes = signing_bytes(ANNOUNCE_DOMAIN, &payload);
+        let announce = Announce {
+            node_sig: key.sign(&bytes),
+            topic_sig: Some(topic.sign(&bytes)),
+            payload,
+        };
+        assert!(
+            announce.verify().is_ok(),
+            "an unknown field must not break an otherwise valid signature"
+        );
     }
 
     #[test]

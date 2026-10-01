@@ -99,18 +99,27 @@ pub fn handle_at(ctx: &Ctx, req: Request, now: u64) -> Response {
 }
 
 fn handle_announce(ctx: &Ctx, announce: Announce, now: u64) -> Response {
-    if let Err(resp) = check_fresh(announce.body.ts, now, ctx.limits.max_skew_secs) {
+    // Freshness is checked on the unverified body, before the signatures, so a
+    // stale replay is turned away without paying for ed25519. That is safe
+    // because the check can only reject: a forged timestamp gets nothing but
+    // its own request dropped. Everything acted on below comes from `verify()`.
+    let unverified = match announce.body() {
+        Ok(body) => body,
+        Err(err) => return Response::error(ErrorCode::Malformed, err.to_string()),
+    };
+    if let Err(resp) = check_fresh(unverified.ts, now, ctx.limits.max_skew_secs) {
         return resp;
     }
-    if let Err(err) = announce.verify() {
-        return Response::error(ErrorCode::BadSignature, err.to_string());
-    }
+    let body = match announce.verify() {
+        Ok(body) => body,
+        Err(err) => return Response::error(ErrorCode::BadSignature, err.to_string()),
+    };
     let AnnounceBody {
         topic,
         addr,
         ttl_secs,
         ts,
-    } = announce.body;
+    } = body;
 
     let mut registry = lock(ctx);
     if ttl_secs == 0 {
@@ -146,13 +155,19 @@ fn handle_announce(ctx: &Ctx, announce: Announce, now: u64) -> Response {
 }
 
 fn handle_lookup(ctx: &Ctx, lookup: Lookup, now: u64) -> Response {
-    if let Err(resp) = check_fresh(lookup.body.ts, now, ctx.limits.max_skew_secs) {
+    // Freshness before signatures, on the unverified body — see `handle_announce`.
+    let unverified = match lookup.body() {
+        Ok(body) => body,
+        Err(err) => return Response::error(ErrorCode::Malformed, err.to_string()),
+    };
+    if let Err(resp) = check_fresh(unverified.ts, now, ctx.limits.max_skew_secs) {
         return resp;
     }
-    if let Err(err) = lookup.verify() {
-        return Response::error(ErrorCode::BadSignature, err.to_string());
-    }
-    let peers = lock(ctx).lookup(&lookup.body.topic, now);
+    let body = match lookup.verify() {
+        Ok(body) => body,
+        Err(err) => return Response::error(ErrorCode::BadSignature, err.to_string()),
+    };
+    let peers = lock(ctx).lookup(&body.topic, now);
     Response::Peers { peers }
 }
 
@@ -303,6 +318,41 @@ mod tests {
         assert!(
             matches!(edge, Response::Announced { .. }),
             "skew is inclusive"
+        );
+    }
+
+    /// Freshness is checked before the signatures, so a stale request is
+    /// turned away as stale even when its signature is also bad.
+    #[test]
+    fn staleness_is_reported_before_a_bad_signature() {
+        let ctx = ctx();
+        let topic = Topic::new("t");
+        let forged = Request::Announce(
+            AnnounceBody {
+                topic: Some(topic.id()),
+                addr: node(1).addr,
+                ttl_secs: 60,
+                ts: NOW - 301,
+            }
+            .sign(&node(2).key, Some(&topic)),
+        );
+        assert_eq!(
+            error_code(&handle_at(&ctx, forged, NOW)),
+            ErrorCode::StaleTimestamp
+        );
+    }
+
+    #[test]
+    fn undecodable_payloads_are_malformed() {
+        let ctx = ctx();
+        let topic = Topic::new("t");
+        let Request::Lookup(mut bad) = lookup(&topic, NOW) else {
+            unreachable!()
+        };
+        bad.payload = "not base64!!".to_string();
+        assert_eq!(
+            error_code(&handle_at(&ctx, Request::Lookup(bad), NOW)),
+            ErrorCode::Malformed
         );
     }
 
