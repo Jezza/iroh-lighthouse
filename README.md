@@ -1,5 +1,7 @@
 # iroh-lighthouse
 
+##### For TypeScript, see [iroh-lighthouse-ts](https://github.com/Jezza/iroh-lighthouse-ts), a browser-ready client with no WASM.
+
 Topic rendezvous and address lookup for [iroh](https://iroh.computer) nodes.
 
 Run a lighthouse at a plain URL such as `https://iroh.ichor.io`. Point nodes at
