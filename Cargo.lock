@@ -1401,7 +1401,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-lighthouse"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "clap",
@@ -1422,7 +1422,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-lighthouse-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1443,7 +1443,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-lighthouse-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "data-encoding",
