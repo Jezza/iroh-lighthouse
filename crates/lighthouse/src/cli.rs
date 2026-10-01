@@ -14,7 +14,7 @@ use crate::server::{Config, IrohConfig, SnapshotConfig};
 /// Every flag has an environment fallback prefixed `LIGHTHOUSE_`.
 #[derive(Parser, Debug, Clone)]
 #[command(
-    name = "iroh-lighthouse-server",
+    name = "iroh-lighthouse",
     version,
     about = "Topic rendezvous and address lookup for iroh nodes"
 )]
@@ -226,7 +226,7 @@ mod tests {
     fn parse(args: &[&str], key_dir: &Path) -> Cli {
         let key = key_dir.join("test.key");
         let mut full = vec![
-            "iroh-lighthouse-server",
+            "iroh-lighthouse",
             "--secret-key-file",
             key.to_str().unwrap(),
         ];

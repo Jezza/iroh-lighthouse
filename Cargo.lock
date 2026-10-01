@@ -1403,14 +1403,34 @@ dependencies = [
 name = "iroh-lighthouse"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "blake3",
+ "axum",
  "clap",
  "humantime",
  "iroh",
+ "iroh-lighthouse-client",
+ "iroh-lighthouse-protocol",
+ "n0-future",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "iroh-lighthouse-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "humantime",
+ "iroh",
+ "iroh-lighthouse-protocol",
  "n0-future",
  "n0-watcher",
- "postcard",
  "reqwest",
  "serde",
  "serde_json",
@@ -1422,24 +1442,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroh-lighthouse-server"
+name = "iroh-lighthouse-protocol"
 version = "0.1.0"
 dependencies = [
- "axum",
- "clap",
- "humantime",
+ "blake3",
  "iroh",
- "iroh-lighthouse",
- "n0-future",
  "postcard",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror 2.0.20",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
 ]
 
 [[package]]

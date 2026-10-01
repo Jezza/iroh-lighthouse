@@ -8,7 +8,7 @@ use std::time::Duration;
 use iroh::endpoint::presets;
 use iroh::protocol::Router;
 use iroh::{Endpoint, EndpointAddr, SecretKey, Watcher};
-use iroh_lighthouse::protocol::ALPN;
+use iroh_lighthouse_protocol::ALPN;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tokio::task::{JoinHandle, JoinSet};

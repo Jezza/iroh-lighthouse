@@ -8,7 +8,7 @@ use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use iroh::EndpointId;
-use iroh_lighthouse::protocol::{
+use iroh_lighthouse_protocol::{
     Announce, ErrorCode, HTTP_ANNOUNCE, HTTP_HEALTH, HTTP_INFO, HTTP_LOOKUP, HTTP_RESOLVE, Lookup,
     MAX_MESSAGE_SIZE, Request, Response,
 };

@@ -24,8 +24,9 @@ the same server speaks HTTPS and native iroh over one protocol.
 
 | Crate | What it is |
 |---|---|
-| `iroh-lighthouse` | Library: protocol types, topic keys, the `Lighthouse` client, self-refreshing `Session`, and `LighthouseLookup` (an iroh `AddressLookup`). Feature `cli` adds the `lighthouse` binary. |
-| `iroh-lighthouse-server` | The server binary, also usable as a library for embedding and tests. |
+| `iroh-lighthouse` | The server binary, also usable as a library for embedding and tests. |
+| `iroh-lighthouse-client` | The `Lighthouse` client, self-refreshing `Session`, and `LighthouseLookup` (an iroh `AddressLookup`). Re-exports the protocol crate as `protocol`. Feature `cli` adds the `lighthouse` binary. |
+| `iroh-lighthouse-protocol` | Wire types and topic keys shared by the server and client. |
 
 Requires Rust 1.91 or newer and iroh 1.2.
 
@@ -34,7 +35,7 @@ Requires Rust 1.91 or newer and iroh 1.2.
 Run a lighthouse locally:
 
 ```sh
-cargo run -p iroh-lighthouse-server -- --no-relays
+cargo run -p iroh-lighthouse -- --no-relays
 ```
 
 It listens on `127.0.0.1:8080` for HTTP, binds an iroh endpoint, creates
@@ -45,7 +46,7 @@ from other machines.
 Join a topic from two terminals:
 
 ```sh
-cargo run -p iroh-lighthouse --features cli --bin lighthouse -- \
+cargo run -p iroh-lighthouse-client --features cli --bin lighthouse -- \
     --url 127.0.0.1:8080 --no-relays join --topic demo --secret hunter2
 ```
 
@@ -62,7 +63,7 @@ carrier after learning the lighthouse's address over HTTP.
 
 ```rust
 use iroh::{Endpoint, endpoint::presets};
-use iroh_lighthouse::{Lighthouse, LighthouseLookup, Topic, parse_url};
+use iroh_lighthouse_client::{Lighthouse, LighthouseLookup, Topic, parse_url};
 use std::time::Duration;
 
 #[tokio::main]
@@ -174,7 +175,7 @@ Wants=network-online.target
 User=lighthouse
 StateDirectory=iroh-lighthouse
 WorkingDirectory=/var/lib/iroh-lighthouse
-ExecStart=/usr/local/bin/iroh-lighthouse-server --iroh-port 4433
+ExecStart=/usr/local/bin/iroh-lighthouse --iroh-port 4433
 Environment=RUST_LOG=info
 Restart=on-failure
 KillSignal=SIGTERM

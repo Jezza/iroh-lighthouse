@@ -1,16 +1,12 @@
-//! Topic rendezvous and address lookup for iroh nodes.
-//!
-//! A lighthouse is a server reachable by URL (HTTPS) or natively over iroh.
-//! Nodes announce themselves on a topic with a TTL and receive the other nodes
-//! on that topic in the same round trip.
+//! The iroh-lighthouse server as a library, so it can be embedded and tested
+//! in-process. The `iroh-lighthouse` binary is a thin wrapper.
 
-pub mod client;
-pub mod lookup;
-pub mod protocol;
-pub mod session;
-pub mod topic;
+pub mod cli;
+pub mod handler;
+pub mod http;
+pub mod iroh_carrier;
+pub mod registry;
+pub mod server;
+pub mod snapshot;
 
-pub use client::{Announced, Error, Lighthouse, parse_url};
-pub use lookup::LighthouseLookup;
-pub use session::{DEFAULT_POLL_INTERVAL, Session};
-pub use topic::{Topic, TopicId};
+pub use server::{Config, IrohConfig, Server, ServerError, SnapshotConfig};
