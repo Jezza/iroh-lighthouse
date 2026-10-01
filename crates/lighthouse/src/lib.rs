@@ -1,5 +1,5 @@
 //! The iroh-lighthouse server as a library, so it can be embedded and tested
-//! in-process. The `iroh-lighthouse` binary is a thin wrapper.
+//! in-process. The `lighthouse` binary is a thin wrapper.
 
 pub mod cli;
 pub mod handler;

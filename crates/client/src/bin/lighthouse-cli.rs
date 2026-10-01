@@ -1,4 +1,4 @@
-//! `lighthouse`: poke a deployed lighthouse from the command line.
+//! `lighthouse-cli`: poke a deployed lighthouse from the command line.
 
 use std::time::Duration;
 
@@ -11,7 +11,7 @@ use url::Url;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "lighthouse",
+    name = "lighthouse-cli",
     version,
     about = "Talk to an iroh-lighthouse server"
 )]
@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn every_subcommand_parses() {
-        let base = ["lighthouse", "--url", "https://iroh.ichor.io"];
+        let base = ["lighthouse-cli", "--url", "https://iroh.ichor.io"];
         let info = Cli::try_parse_from(base.iter().chain(["info"].iter())).unwrap();
         assert!(matches!(info.command, Command::Info));
         assert!(!info.via_iroh);
@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn join_polls_at_the_library_default() {
         let cli = Cli::try_parse_from([
-            "lighthouse",
+            "lighthouse-cli",
             "--url",
             "https://iroh.ichor.io",
             "join",
@@ -235,7 +235,8 @@ mod tests {
 
     #[test]
     fn bare_host_url_parses() {
-        let cli = Cli::try_parse_from(["lighthouse", "--url", "iroh.ichor.io", "info"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["lighthouse-cli", "--url", "iroh.ichor.io", "info"]).unwrap();
         assert_eq!(cli.url.as_str(), "https://iroh.ichor.io/");
     }
 

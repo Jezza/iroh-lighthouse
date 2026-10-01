@@ -28,9 +28,9 @@ anyhow = { version = "1", optional = true }
 cli = ["dep:clap", "dep:humantime", "dep:tracing-subscriber", "dep:anyhow", "tokio/rt-multi-thread", "tokio/signal"]
 
 [[bin]]
-name = "lighthouse"
+name = "lighthouse-cli"
 required-features = ["cli"]
-path = "src/bin/lighthouse.rs"
+path = "src/bin/lighthouse-cli.rs"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
