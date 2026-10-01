@@ -24,8 +24,8 @@ the same server speaks HTTPS and native iroh over one protocol.
 
 | Crate | What it is |
 |---|---|
-| `iroh-lighthouse` | The server binary, also usable as a library for embedding and tests. |
-| `iroh-lighthouse-client` | The `Lighthouse` client, self-refreshing `Session`, and `LighthouseLookup` (an iroh `AddressLookup`). Re-exports the protocol crate as `protocol`. Feature `cli` adds the `lighthouse` binary. |
+| `iroh-lighthouse` | The server (`lighthouse` binary), also usable as a library for embedding and tests. |
+| `iroh-lighthouse-client` | The `Lighthouse` client, self-refreshing `Session`, and `LighthouseLookup` (an iroh `AddressLookup`). Re-exports the protocol crate as `protocol`. Feature `cli` adds the `lighthouse-cli` binary. |
 | `iroh-lighthouse-protocol` | Wire types and topic keys shared by the server and client. |
 
 Requires Rust 1.91 or newer and iroh 1.2.
@@ -46,7 +46,7 @@ from other machines.
 Join a topic from two terminals:
 
 ```sh
-cargo run -p iroh-lighthouse-client --features cli --bin lighthouse -- \
+cargo run -p iroh-lighthouse-client --features cli --bin lighthouse-cli -- \
     --url 127.0.0.1:8080 --no-relays join --topic demo --secret hunter2
 ```
 
@@ -175,7 +175,7 @@ Wants=network-online.target
 User=lighthouse
 StateDirectory=iroh-lighthouse
 WorkingDirectory=/var/lib/iroh-lighthouse
-ExecStart=/usr/local/bin/iroh-lighthouse --iroh-port 4433
+ExecStart=/usr/local/bin/lighthouse --iroh-port 4433
 Environment=RUST_LOG=info
 Restart=on-failure
 KillSignal=SIGTERM
