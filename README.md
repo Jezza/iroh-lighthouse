@@ -123,6 +123,19 @@ uses so peers can be resolved by id.
 directory with no signature, like any public discovery service. **Info**
 returns the server's iroh address and limits.
 
+**Signing.** A signed request carries its body as a base64url string, and the
+signature covers exactly `domain || "." || payload` — all ASCII. The verifier
+checks the signature against the payload *as received* and never re-encodes
+it, so there is no canonical encoding for the two sides to agree on.
+
+That is the point: a client needs `JSON.stringify`, base64url and ed25519, and
+nothing else. It also means an unknown field added by a newer client still
+verifies against an older server, because the signature covers bytes rather
+than a parse. `spec/vectors.json` gives fixed keys, payloads and signatures for
+other implementations to check against: sign a vector's payload and get its
+signatures, and verify them. Matching the payload strings themselves is not
+required, since any JSON encoding of the body is valid.
+
 **Carriers.** Over HTTP the routes are `POST /v1/announce`, `POST /v1/lookup`,
 `GET /v1/resolve/{id}`, `GET /v1/info`, and `GET /v1/health`. Over iroh the
 ALPN is `iroh-lighthouse/1`, one JSON request per bidirectional stream. Both
