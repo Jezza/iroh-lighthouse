@@ -5,7 +5,7 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::StatusCode;
+use axum::http::{Method, StatusCode, header};
 use axum::routing::{get, post};
 use iroh::EndpointId;
 use iroh_lighthouse_protocol::{
@@ -13,12 +13,22 @@ use iroh_lighthouse_protocol::{
     MAX_MESSAGE_SIZE, Request, Response,
 };
 
+use tower_http::cors::{Any, CorsLayer};
+
 use crate::handler::{Ctx, handle};
 
 type Reply = (StatusCode, Json<Response>);
 
 /// The complete HTTP API.
+///
+/// CORS is open to any origin so a static page can talk to the lighthouse
+/// directly. That is safe here: requests carry no cookies or credentials, and
+/// every write is authenticated by signatures inside the body.
 pub fn router(ctx: Arc<Ctx>) -> axum::Router {
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers([header::CONTENT_TYPE]);
     axum::Router::new()
         .route(HTTP_ANNOUNCE, post(announce))
         .route(HTTP_LOOKUP, post(lookup))
@@ -26,6 +36,7 @@ pub fn router(ctx: Arc<Ctx>) -> axum::Router {
         .route(HTTP_INFO, get(info))
         .route(HTTP_HEALTH, get(|| async { "ok" }))
         .layer(DefaultBodyLimit::max(MAX_MESSAGE_SIZE))
+        .layer(cors)
         .with_state(ctx)
 }
 
